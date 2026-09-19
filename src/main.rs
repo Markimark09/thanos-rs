@@ -150,40 +150,93 @@ fn optimise_region_files(input_directory: &str, output_directory: &str, inhabite
                 file.read_exact(&mut compression_type).unwrap();
                 let compression_type = compression_type[0];
 
-                // Reads the chunk data with the calculated chunk size
-                let mut data = vec![0; chunk_size as usize - 1];
-                file.read_exact(&mut data).unwrap();
-
                 // TODO: Unused, maybe useful for Debugging Outputs?
                 let _chunk_x = region_x * 32 + x as i32;
                 let _chunk_z = region_z * 32 + z as i32;
 
-                if compression_type != 1 && compression_type != 2 {
+                // MODIFIED (line 161-164): Accept GZip(1), Zlib(2) and Uncompressed(3, MC 1.21+)
+                if compression_type != 1 && compression_type != 2 && compression_type != 3 {
                     eprintln!("Error: unknown chunk data compression method: {}!", compression_type);
                     continue;
                 }
 
+                // MODIFIED (line 154): Guard against chunk_size <= 0 to prevent underflow panic.
+                // Per the MCA region-file format the 4-byte length field ALWAYS counts
+                // the trailing 1-byte compression-type byte, so the actual payload is
+                // (chunk_size - 1) bytes for every supported compression type (1, 2, 3).
+                if chunk_size <= 0 {
+                    eprintln!("Error: invalid chunk size {} for chunk ({}, {}) in {}", chunk_size, _chunk_x, _chunk_z, file_name);
+                    continue;
+                }
+                let payload_len = (chunk_size as usize) - 1;
+
+                // Reads the chunk data with the calculated payload length
+                let mut data = vec![0; payload_len];
+                if let Err(err) = file.read_exact(&mut data) {
+                    eprintln!("Error reading chunk data for ({}, {}) in {}: {}", _chunk_x, _chunk_z, file_name, err);
+                    continue;
+                }
+
+                // MODIFIED (line 166-183): Add Uncompressed branch for MC 1.21+ type 3.
                 let mut decompressed_chunk_data: Vec<u8> = Vec::new();
                 match compression_type {
                     1 => {
                         let mut gz = GzDecoder::new(Cursor::new(data.clone()));
                         if let Err(err) = gz.read_to_end(&mut decompressed_chunk_data) {
-                            eprintln!("Error decompressing chunk data: {}", err);
+                            eprintln!("Error decompressing (gzip) chunk at ({}, {}) in {}: {}", _chunk_x, _chunk_z, file_name, err);
                             continue;
                         }
                     }
                     2 => {
                         let mut zlib = ZlibDecoder::new(Cursor::new(data.clone()));
                         if let Err(err) = zlib.read_to_end(&mut decompressed_chunk_data) {
-                            eprintln!("Error decompressing chunk data: {}", err);
+                            eprintln!("Error decompressing (zlib) chunk at ({}, {}) in {}: {}", _chunk_x, _chunk_z, file_name, err);
                             continue;
                         }
+                    }
+                    3 => {
+                        // Uncompressed NBT – no decoding required.
+                        decompressed_chunk_data = data.clone();
                     }
                     _ => unreachable!(),
                 }
 
-                let nbt = simdnbt::borrow::read(&mut Cursor::new(&*decompressed_chunk_data)).expect("Failed to read chunk data").unwrap();
-                let inhabited_time = nbt.long("InhabitedTime").unwrap();
+                // MODIFIED (line 185-186): Robust multi-version InhabitedTime fallback.
+                //
+                // Chunk formats observed in the wild:
+                //   * Modern MC 1.18+: top-level compound tag "InhabitedTime" (Long)
+                //   * Legacy pre-1.18 / Anvil: "Level" -> "InhabitedTime"
+                //   * Some modded / older snapshots: lowercase "inhabitedTime"
+                //   * Newly-generated / empty chunks: missing entirely -> treat as 0
+                //
+                // A panic here would abort the whole rayon worker thread and lose
+                // every remaining chunk in this region file, so we degrade gracefully
+                // through a chain of fallbacks and default to 0 if nothing is found.
+                let inhabited_time = match simdnbt::borrow::read(&mut Cursor::new(&decompressed_chunk_data)) {
+                    Ok(nbt_opt) => match nbt_opt {
+                        Some(nbt) => match nbt.long("InhabitedTime") {
+                            Some(v) => v,
+                            None => match nbt.compound("Level") {
+                                Some(level) => match level.long("InhabitedTime") {
+                                    Some(v) => v,
+                                    None => match level.long("inhabitedTime") {
+                                        Some(v) => v,
+                                        None => 0,
+                                    },
+                                },
+                                None => match nbt.long("inhabitedTime") {
+                                    Some(v) => v,
+                                    None => 0,
+                                },
+                            },
+                        },
+                        None => 0,
+                    },
+                    Err(err) => {
+                        eprintln!("Error parsing NBT for chunk ({}, {}) in {}: {}", _chunk_x, _chunk_z, file_name, err);
+                        0
+                    }
+                };
 
                 if inhabited_time > inhabited_time_threshold {
                     chunk_data.push((loc, compression_type, data));
@@ -219,4 +272,3 @@ fn optimise_region_files(input_directory: &str, output_directory: &str, inhabite
 
     Ok(())
 }
-

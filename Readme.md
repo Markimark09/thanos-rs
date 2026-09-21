@@ -61,6 +61,18 @@ Normal beim ersten Mal, da alle Abhängigkeiten heruntergeladen und kompiliert w
 
 Wer Fehler findet oder Verbesserungsvorschläge hat, kann gerne ein Issue eröffnen oder einen Pull Request erstellen.
 
+## Getestete Minecraft-Versionen
+
+| Version | Funktioniert |
+|---|---|
+| 26.1 | ✅ |
+| 26.2 | ✅ (sollte funktionieren, da gleiches Speicherformat) |
+| 26.3 | ✅ (sollte funktionieren, da gleiches Speicherformat) |
+
+Das Tool arbeitet direkt auf den Region-Dateien (.mca) der Welt, unabhängig von der genauen Minecraft-Version. Solange sich das Speicherformat nicht ändert, sollte es auch mit zukünftigen Versionen ab 26.1 funktionieren. Getestet wurde konkret mit Version 26.1.
+
+Vor dem Einsatz an einer wichtigen Welt trotzdem immer zuerst an einer Kopie testen.
+
 Sources:
 - https://wiki.vg/NBT
 - https://wiki.vg/Region_Files

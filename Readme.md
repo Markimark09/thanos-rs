@@ -1,84 +1,65 @@
-# Thanos-rs
+# thanos-rs
 
-Tool zum Entfernen ungenutzter Chunks aus Minecraft-Welten, basierend auf `InhabitedTime`. Geschrieben in Rust.
+Ein kleines Tool in Rust, um Minecraft-Weltordner zu verkleinern, indem ungenutzte oder leere Chunk-Daten entfernt werden. Nützlich, wenn deine Welt über die Zeit unnötig groß geworden ist.
 
 ## Was macht das Tool
 
-Server-Welten wachsen mit der Zeit vor allem durch Chunks, die zwar generiert, aber nie wirklich besucht wurden (Preloading, Anti-Xray, Karten-Mods, Elytra-Überflüge etc.). **Thanos-rs** liest jede Region-Datei, prüft pro Chunk den `InhabitedTime`-Wert (Zeit, die Spieler dort tatsächlich verbracht haben) und lässt Chunks unterhalb eines Schwellenwerts beim Schreiben der neuen Welt einfach weg. Minecraft generiert sie beim nächsten Betreten neu.
+thanos-rs schaut sich deine Weltdaten an und entfernt Bereiche, die nicht (mehr) gebraucht werden. Das Ergebnis ist ein kleinerer Ordner, ohne dass Minecraft Probleme beim Laden bekommt.
 
-Der Rest der Welt (level.dat, playerdata, stats, ...) wird **1:1 kopiert**. Die **Original-Welt bleibt unangetastet**.
+**Wichtig:** Mach immer vorher ein Backup deiner Welt. Auch wenn das Tool getestet ist, sollte man bei allem, was Weltdateien verändert, auf Nummer sicher gehen.
 
-## Build
+## Installation
 
-Voraussetzung: **Rust + Cargo** installiert.
+Es gibt zwei Wege, das Tool zu benutzen.
+
+### Weg 1 — Fertige Datei nutzen (einfacher)
+
+1. Gehe zum Reiter [Releases](../../releases)
+2. Lade dir unter "Assets" die passende `.exe` herunter
+3. Fertig, kein Rust oder Cargo nötig
+
+### Weg 2 — Selbst bauen
+
+Voraussetzung: Rust ist installiert ([rustup.rs](https://rustup.rs))
 git clone https://github.com/Markimark09/thanos-rs.git
 cd thanos-rs
 cargo build --release
 
-Ergebnis liegt unter `target/release/thanos-rs.exe` (Windows) bzw. `target/release/thanos-rs` (Linux/macOS).
+Nach dem Bauen liegt die fertige Datei hier:
+target/release/thanos-rs.exe
+
+Der Build dauert je nach PC ungefähr 5 bis 15 Minuten. Das ist normal.
 
 ## Benutzung
-thanos-rs <input_dir> <output_dir> [-i TICKS]
 
-- **`input_dir`** – Ordner der Original-Welt (enthält `region/`, `level.dat`) — **Pflicht**
-- **`output_dir`** – Zielordner für die reduzierte Welt, sollte noch nicht existieren — **Pflicht**
-- **`-i / --inhabited-time`** – Schwellenwert in Ticks, Standard **0**
+Öffne eine Kommandozeile (PowerShell oder Terminal) im Ordner, in dem `thanos-rs.exe` liegt.
 
-Ticks zur Orientierung: **20 Ticks = 1 Sekunde**, **1200 = 1 Minute**, **6000 = 5 Minuten**, **72000 = 1 Stunde**.
+Hilfe anzeigen:
+.\thanos-rs.exe --help
 
-Beispiele:
-thanos-rs "C:\Server\world" "C:\Server\world_optimiert" -i 0
-thanos-rs "C:\Server\world" "C:\Server\world_optimiert" -i 2400
+Dort werden dir alle verfügbaren Optionen angezeigt.
 
-## Ablauf im Detail
+## Bevor du es an deiner echten Welt benutzt
 
-1. Region-Dateien im `region/`-Ordner werden gefunden, alle anderen Dateien direkt kopiert.
-2. Jeder Chunk wird entpackt (zlib/gzip via **flate2**) und als NBT geparst (**simdnbt**).
-3. `InhabitedTime` wird ausgelesen, mit Fallback auf `Level.InhabitedTime` bzw. Groß-/Kleinschreibvarianten für ältere Formate.
-4. Liegt der Wert **unter** dem Schwellenwert, fliegt der Chunk aus der neuen Region-Datei raus.
-5. **Rayon** verteilt die Arbeit auf mehrere CPU-Kerne — dadurch ist auch das Durchgehen großer Welten schnell.
-6. Am Ende liegt die fertige, reduzierte Welt komplett neu im `output_dir`.
+- Kopiere deine Weltordner an einen anderen Ort (Backup)
+- Teste zuerst an der Kopie
+- Prüfe danach, ob Minecraft die bearbeitete Welt noch normal öffnet
+- Erst wenn alles passt, an der echten Welt anwenden (optional, auf eigenes Risiko)
 
-## Abhängigkeiten
+## Häufige Probleme
 
-- **clap** – Parsen der Kommandozeilen-Argumente
-- **simdnbt** – NBT-Parsing
-- **flate2** – Dekomprimieren der Chunk-Daten
-- **rayon** – Multithreading
+**Es gibt keinen `target`-Ordner im Repository**
+Das ist Absicht. Der `target`-Ordner entsteht erst lokal beim Bauen mit `cargo build`. Er wird nicht mit hochgeladen, weil er nur Baudateien enthält, die sich jederzeit neu erzeugen lassen.
 
-## ⚠️ Sicherheitshinweise
+**Welche Datei ist die richtige nach dem Bauen?**
+Immer die aus `target/release/`, nicht aus `target/debug/`. Der Release-Build ist optimiert und deutlich schneller.
 
-- **Vor dem ersten Einsatz Backup der Welt anlegen.**
-- Server/Client beim Ausführen **geschlossen halten**.
-- Zielordner sollte **leer/nicht vorhanden** sein.
-- Erst an einer **Testwelt** ausprobieren, nicht direkt am Live-Server.
-- Gebäude in Chunks mit niedrigem `InhabitedTime` (z. B. durchgeflogen statt betreten) gehen beim Entfernen verloren, da der Chunk **komplett neu generiert** wird.
+**Build dauert sehr lange oder hängt**
+Normal beim ersten Mal, da alle Abhängigkeiten heruntergeladen und kompiliert werden müssen. Rechner währenddessen nicht ausschalten.
 
-## Bekannte Build-Probleme
+## Mitmachen
 
-**E0308 bei `simdnbt::borrow::Nbt`**
-Neuere simdnbt-Versionen (ab 0.6) liefern `Nbt::Some(...)` / `Nbt::None` statt `Option<Nbt>`. Match-Pattern entsprechend anpassen, `.as_compound()` verwenden.
-
-**`failed to select a version for simdnbt`**
-Version in `Cargo.toml` existiert nicht mehr auf crates.io. Auf verfügbare Version (z. B. **0.6**) heben, dann:
-cargo clean
-cargo build --release
-
-## FAQ
-
-**Wird die Originalwelt verändert?**
-**Nein**, es wird nur gelesen. Die neue Welt entsteht komplett separat im Zielordner.
-
-**Funktioniert es mit jeder Minecraft-Version?**
-Es unterstützt das normale Anvil-Format und deckt verschiedene InhabitedTime-Pfade ab, dadurch auch **ältere Formate**.
-
-**Wie viel bringt es an Ersparnis?**
-Kommt stark auf die Welt an. Bei Servern mit viel unbesuchtem, aber generiertem Terrain sind **30–70 % weniger Weltgröße** realistisch.
-
-**Kann ich mehrere Schwellenwerte testen?**
-Nicht in einem Durchlauf — einfach mehrfach mit unterschiedlichem `-i` und jeweils neuem Zielordner laufen lassen und vergleichen.
-
-Ganz unten: "Save Page" klicken
+Wer Fehler findet oder Verbesserungsvorschläge hat, kann gerne ein Issue eröffnen oder einen Pull Request erstellen.
 
 Sources:
 - https://wiki.vg/NBT

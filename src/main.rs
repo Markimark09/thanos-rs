@@ -99,7 +99,11 @@ impl eframe::App for App {
         let running = self
             .progress
             .as_ref()
-            .map(|p| !p.finished.load(Ordering::SeqCst))
+            .map(|p| {
+                !p.finished.load(Ordering::SeqCst)
+                    || (p.zip_total.load(Ordering::Relaxed) > 0
+                    && !p.zip_finished.load(Ordering::SeqCst))
+            })
             .unwrap_or(false);
         if running {
             ctx.request_repaint();
@@ -213,7 +217,12 @@ impl eframe::App for App {
                             match r {
                                 Ok(Some(final_out)) => {
                                     if zip {
-                                        let _ = engine::zip_dir(&final_out, &p);
+                                        if let Err(e) = engine::zip_dir(&final_out, &p) {
+                                            if let Ok(mut err) = p.error.lock() {
+                                                *err = Some(format!("ZIP-Fehler: {e}"));
+                                            }
+                                            p.zip_finished.store(true, Ordering::SeqCst);
+                                        }
                                     }
                                 }
                                 Ok(None) => {}
@@ -246,6 +255,26 @@ impl eframe::App for App {
                                 .text(format!("{done} / {total} Region-Dateien")),
                         );
                         ui.add_space(6.0);
+
+                        let zt = p.zip_total.load(Ordering::Relaxed);
+                        if zt > 0 {
+                            let zd = p.zip_done.load(Ordering::Relaxed);
+                            ui.add(
+                                egui::ProgressBar::new(zd as f32 / zt as f32)
+                                    .fill(OK)
+                                    .text(format!("ZIP: {zd} / {zt} Dateien")),
+                            );
+                            ui.add_space(6.0);
+                        }
+                        if p.zip_finished.load(Ordering::SeqCst) {
+                            ui.label(
+                                RichText::new("ZIP fertig! Die Datei liegt neben dem Ausgabe-Ordner.")
+                                    .color(OK)
+                                    .strong()
+                                    .font(FontId::proportional(16.0)),
+                            );
+                            ui.add_space(6.0);
+                        }
 
                         let before = p.bytes_before.load(Ordering::Relaxed);
                         let after = p.bytes_after.load(Ordering::Relaxed);

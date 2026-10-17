@@ -19,6 +19,9 @@ pub struct Progress {
     pub cancel: AtomicBool,
     pub log: Mutex<Vec<String>>,
     pub error: Mutex<Option<String>>,
+    pub zip_total: AtomicUsize,
+    pub zip_done: AtomicUsize,
+    pub zip_finished: AtomicBool,
 }
 
 impl Progress {
@@ -34,6 +37,9 @@ impl Progress {
             cancel: AtomicBool::new(false),
             log: Mutex::new(Vec::new()),
             error: Mutex::new(None),
+            zip_total: AtomicUsize::new(0),
+            zip_done: AtomicUsize::new(0),
+            zip_finished: AtomicBool::new(false),
         }
     }
 
@@ -449,6 +455,24 @@ pub fn zip_dir(dir: &Path, p: &Progress) -> Result<(), String> {
     use zip::write::SimpleFileOptions;
 
     p.log("Packe ZIP ...");
+
+    // Alle Dateien vorab sammeln, damit der Fortschritt berechnet werden kann
+    let mut files: Vec<PathBuf> = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for entry in fs::read_dir(&d).map_err(|e| e.to_string())? {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+
+    p.zip_total.store(files.len(), Ordering::Relaxed);
+    p.zip_done.store(0, Ordering::Relaxed);
+
     let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("world");
     let zip_path = dir.with_file_name(format!("{name}.zip"));
     let file = fs::File::create(&zip_path).map_err(|e| format!("ZIP: {e}"))?;
@@ -457,22 +481,19 @@ pub fn zip_dir(dir: &Path, p: &Progress) -> Result<(), String> {
         .compression_method(zip::CompressionMethod::Deflated);
 
     let base = dir.parent().unwrap_or(dir);
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(d) = stack.pop() {
-        for entry in fs::read_dir(&d).map_err(|e| e.to_string())? {
-            let path = entry.map_err(|e| e.to_string())?.path();
-            let rel = path.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/");
-            if path.is_dir() {
-                zip.add_directory(format!("{rel}/"), opts).map_err(|e| e.to_string())?;
-                stack.push(path);
-            } else {
-                zip.start_file(rel, opts).map_err(|e| e.to_string())?;
-                let data = fs::read(&path).map_err(|e| e.to_string())?;
-                zip.write_all(&data).map_err(|e| e.to_string())?;
-            }
+    for path in &files {
+        if p.cancel.load(Ordering::Relaxed) {
+            return Err("ZIP abgebrochen.".into());
         }
+        let rel = path.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/");
+        zip.start_file(rel, opts).map_err(|e| e.to_string())?;
+        let data = fs::read(path).map_err(|e| e.to_string())?;
+        zip.write_all(&data).map_err(|e| e.to_string())?;
+        p.zip_done.fetch_add(1, Ordering::Relaxed);
     }
+
     zip.finish().map_err(|e| e.to_string())?;
     p.log(format!("ZIP fertig: {}", zip_path.display()));
+    p.zip_finished.store(true, Ordering::SeqCst);
     Ok(())
 }

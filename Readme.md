@@ -1,79 +1,125 @@
-# thanos-rs
+# Thanos-RS
 
-Ein kleines Tool in Rust, um Minecraft-Weltordner zu verkleinern, indem ungenutzte oder leere Chunk-Daten entfernt werden. Nützlich, wenn deine Welt über die Zeit unnötig groß geworden ist.
+**Verkleinert Minecraft-Welten, indem Chunks entfernt werden, in denen kaum jemand war.**
+Schnell, in Rust geschrieben, mit futuristischer GUI (Drag and Drop, Fortschrittsbalken) und optionaler ZIP-Ausgabe.
 
-## Was macht das Tool
+> Die Original-Welt bleibt unverändert. Thanos-RS schreibt immer in einen neuen Ausgabe-Ordner.
 
-thanos-rs schaut sich deine Weltdaten an und entfernt Bereiche, die nicht (mehr) gebraucht werden. Das Ergebnis ist ein kleinerer Ordner, ohne dass Minecraft Probleme beim Laden bekommt.
+---
 
-**Wichtig:** Mach immer vorher ein Backup deiner Welt. Auch wenn das Tool getestet ist, sollte man bei allem, was Weltdateien verändert, auf Nummer sicher gehen.
+## Features
 
-## Installation
+- GUI mit Ordnerauswahl und Drag and Drop
+- Fortschrittsbalken für Verkleinerung und ZIP-Erstellung
+- Unterstützt Overworld, Nether und End
+- Unterstützt Paper 26.1.x (Dimensions-Ordner `dimensions/minecraft/...`)
+- Unterstützt LZ4-komprimierte Regionsdateien
+- Mehrere Threads für hohe Geschwindigkeit
+- Einstellbarer Schwellenwert (`InhabitedTime`)
+- Optionale ZIP-Datei zum direkten Teilen
+- Eine einzelne `.exe`, keine Installation von Zusatzprogrammen nötig
 
-Es gibt zwei Wege, das Tool zu benutzen.
+---
 
-### Weg 1 — Fertige Datei nutzen (einfacher)
+## Download
 
-1. Gehe zum Reiter [Releases](../../releases)
-2. Lade dir unter "Assets" die passende `.exe` herunter
-3. Fertig, kein Rust oder Cargo nötig
+Fertige Version unter **Releases** im Repository herunterladen und `thanos-rs.exe` starten.
 
-### Weg 2 — Selbst bauen
+---
 
-Voraussetzung: Rust ist installiert ([rustup.rs](https://rustup.rs))
-git clone https://github.com/Markimark09/thanos-rs.git
+## Benutzung (GUI)
+
+1. `thanos-rs.exe` starten.
+2. **Welt-Ordner** auswählen oder per Drag and Drop in das Fenster ziehen.
+   Der Ordner muss eine `level.dat` enthalten.
+3. **Ausgabe-Ordner** wählen. Er darf noch nicht existieren.
+4. Schwellenwert und Threads einstellen (Standardwerte passen meistens).
+5. Optional **ZIP erstellen** aktivieren.
+6. **Start** klicken und den Fortschrittsbalken abwarten.
+
+---
+
+## Benutzung (Kommandozeile)
+
+```bash
+thanos-rs --input "C:\Pfad\zur\welt" --output "C:\Pfad\neue_welt" --threshold 600 --threads 8
+```
+
+| Option | Beschreibung |
+|---|---|
+| `--input` | Quell-Weltordner (mit `level.dat`) |
+| `--output` | Neuer Ausgabe-Ordner (darf nicht existieren) |
+| `--threshold` | Mindest-`InhabitedTime` in Ticks, darunter wird der Chunk entfernt |
+| `--threads` | Anzahl der Worker-Threads |
+
+---
+
+## Wie funktioniert es?
+
+Jeder Chunk speichert in `InhabitedTime`, wie lange Spieler dort waren. Chunks unter dem Schwellenwert werden nicht in die neue Welt übernommen und vom Spiel bei Bedarf neu generiert. Bauwerke und besuchte Gebiete bleiben erhalten.
+
+Zeitangaben: 20 Ticks = 1 Sekunde, also 1200 Ticks = 1 Minute.
+
+---
+
+## Welt nutzen
+
+### Auf einem Paper-Server
+
+Ordner einfach als Weltordner verwenden.
+
+### Im Vanilla-Singleplayer (Version 26.1.2)
+
+Paper-Welten brauchen eine Anpassung, sonst erscheint der Fehler `Unable to read or access the world gen settings file`:
+
+1. In Minecraft 26.1.2 eine neue Welt mit **demselben Seed** erstellen und beenden.
+2. Aus dieser Welt `data/minecraft/world_gen_settings.dat` kopieren.
+3. In die verkleinerte Welt nach `data/minecraft/` einfügen.
+4. Die Welt in `.minecraft/saves` legen und starten.
+
+Die Warnung `Missing data pack paper` kann ignoriert werden.
+
+---
+
+## Welt weitergeben
+
+1. Kopie der Welt anlegen.
+2. `session.lock` und `level.dat_old` löschen, bei Bedarf auch `playerdata`, `stats`, `advancements`.
+3. Den Weltordner als ZIP packen, sodass `level.dat` direkt im Ordner in der ZIP liegt.
+4. ZIP über Google Drive, MEGA oder OneDrive teilen.
+5. Empfänger entpacken die ZIP nach `.minecraft/saves` und starten mit **Minecraft 26.1.2**.
+
+---
+
+## Selbst bauen
+
+Voraussetzung: aktuelles Rust (`rustup update`).
+
+```bash
+git clone https://github.com/DEIN-NAME/thanos-rs.git
 cd thanos-rs
 cargo build --release
+```
 
-Nach dem Bauen liegt die fertige Datei hier:
-target/release/thanos-rs.exe
+Die fertige Datei liegt unter `target/release/thanos-rs.exe`.
 
-Der Build dauert je nach PC ungefähr 5 bis 15 Minuten. Das ist normal.
+Tests ausführen:
 
-## Benutzung
+```bash
+cargo test
+```
 
-Öffne eine Kommandozeile (PowerShell oder Terminal) im Ordner, in dem `thanos-rs.exe` liegt.
+---
 
-Hilfe anzeigen:
-.\thanos-rs.exe --help
+## Hinweise
 
-Dort werden dir alle verfügbaren Optionen angezeigt.
+- Vor dem Verkleinern immer ein Backup anlegen.
+- Server vorher stoppen, damit keine Dateien gesperrt oder halb geschrieben sind.
+- Je höher der Schwellenwert, desto kleiner wird die Welt.
+- Die ZIP-Größe hängt vom Inhalt ab. Regionsdateien lassen sich kaum weiter komprimieren.
 
-## Bevor du es an deiner echten Welt benutzt
+---
 
-- Kopiere deine Weltordner an einen anderen Ort (Backup)
-- Teste zuerst an der Kopie
-- Prüfe danach, ob Minecraft die bearbeitete Welt noch normal öffnet
-- Erst wenn alles passt, an der echten Welt anwenden (optional, auf eigenes Risiko)
+## Lizenz
 
-## Häufige Probleme
-
-**Es gibt keinen `target`-Ordner im Repository**
-Das ist Absicht. Der `target`-Ordner entsteht erst lokal beim Bauen mit `cargo build`. Er wird nicht mit hochgeladen, weil er nur Baudateien enthält, die sich jederzeit neu erzeugen lassen.
-
-**Welche Datei ist die richtige nach dem Bauen?**
-Immer die aus `target/release/`, nicht aus `target/debug/`. Der Release-Build ist optimiert und deutlich schneller.
-
-**Build dauert sehr lange oder hängt**
-Normal beim ersten Mal, da alle Abhängigkeiten heruntergeladen und kompiliert werden müssen. Rechner währenddessen nicht ausschalten.
-
-## Mitmachen
-
-Wer Fehler findet oder Verbesserungsvorschläge hat, kann gerne ein Issue eröffnen oder einen Pull Request erstellen.
-
-## Getestete Minecraft-Versionen
-
-| Version | Funktioniert |
-|---|---|
-| 26.1 | ✅ |
-| 26.2 | ✅ (sollte funktionieren, da gleiches Speicherformat) |
-| 26.3 | ✅ (sollte funktionieren, da gleiches Speicherformat) |
-| 26.1.2 | ✅ |
-
-Das Tool arbeitet direkt auf den Region-Dateien (.mca) der Welt, unabhängig von der genauen Minecraft-Version. Solange sich das Speicherformat nicht ändert, sollte es auch mit zukünftigen Versionen ab 26.1 funktionieren. Getestet wurde konkret mit Version 26.1.
-
-Vor dem Einsatz an einer wichtigen Welt trotzdem immer zuerst an einer Kopie testen.
-
-Sources:
-- https://wiki.vg/NBT
-- https://wiki.vg/Region_Files
+MIT, siehe `LICENSE`.
